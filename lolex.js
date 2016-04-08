@@ -1,6 +1,99 @@
-!function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.lolex=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-(function (global){
-/*global global, window*/
+(function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.lolex = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+var queue = [];
+var draining = false;
+var currentQueue;
+var queueIndex = -1;
+
+function cleanUpNextTick() {
+    draining = false;
+    if (currentQueue.length) {
+        queue = currentQueue.concat(queue);
+    } else {
+        queueIndex = -1;
+    }
+    if (queue.length) {
+        drainQueue();
+    }
+}
+
+function drainQueue() {
+    if (draining) {
+        return;
+    }
+    var timeout = setTimeout(cleanUpNextTick);
+    draining = true;
+
+    var len = queue.length;
+    while(len) {
+        currentQueue = queue;
+        queue = [];
+        while (++queueIndex < len) {
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
+        }
+        queueIndex = -1;
+        len = queue.length;
+    }
+    currentQueue = null;
+    draining = false;
+    clearTimeout(timeout);
+}
+
+process.nextTick = function (fun) {
+    var args = new Array(arguments.length - 1);
+    if (arguments.length > 1) {
+        for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+        }
+    }
+    queue.push(new Item(fun, args));
+    if (queue.length === 1 && !draining) {
+        setTimeout(drainQueue, 0);
+    }
+};
+
+// v8 likes predictible objects
+function Item(fun, array) {
+    this.fun = fun;
+    this.array = array;
+}
+Item.prototype.run = function () {
+    this.fun.apply(null, this.array);
+};
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+};
+
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+process.umask = function() { return 0; };
+
+},{}],2:[function(require,module,exports){
+(function (process,global){
+/*global global, process*/
 /**
  * @author Christian Johansen (christian@cjohansen.no) and contributors
  * @license BSD
@@ -8,7 +101,7 @@
  * Copyright (c) 2010-2014 Christian Johansen
  */
 
-(function (global) {
+(function (global, process) {
     "use strict";
 
     // Make properties writable in IE, as per
@@ -24,7 +117,7 @@
 
     // setImmediate is not a standard function
     // avoid adding the prop to the window object if not present
-    if('setImmediate' in global) {
+    if (global.setImmediate !== undefined) {
         global.setImmediate = glbl.setImmediate;
         global.clearImmediate = glbl.clearImmediate;
     }
@@ -36,6 +129,7 @@
     var NOOP = function () { return undefined; };
     var timeoutResult = setTimeout(NOOP, 0);
     var addTimerReturnsObject = typeof timeoutResult === "object";
+    var hrtimePresent = (process && typeof process.hrtime === "function");
     clearTimeout(timeoutResult);
 
     var NativeDate = Date;
@@ -70,6 +164,20 @@
         }
 
         return ms * 1000;
+    }
+
+    /**
+     * Floor function that also works for negative numbers
+     */
+    function fixedFloor(n) {
+        return (n >= 0 ? Math.floor(n) : Math.ceil(n));
+    }
+
+    /**
+     * % operator that also works for negative numbers
+     */
+    function fixedModulo(n, m) {
+        return ((n % m) + m) % m;
     }
 
     /**
@@ -250,6 +358,22 @@
         return timer;
     }
 
+    function lastTimer(clock) {
+        var timers = clock.timers,
+            timer = null,
+            id;
+
+        for (id in timers) {
+            if (timers.hasOwnProperty(id)) {
+                if (!timer || compareTimers(timer, timers[id]) === -1) {
+                    timer = timers[id];
+                }
+            }
+        }
+
+        return timer;
+    }
+
     function callTimer(clock, timer) {
         var exception;
 
@@ -284,11 +408,11 @@
     function timerType(timer) {
         if (timer.immediate) {
             return "Immediate";
-        } else if (typeof timer.interval !== "undefined") {
-            return "Interval";
-        } else {
-            return "Timeout";
         }
+        if (timer.interval !== undefined) {
+            return "Interval";
+        }
+        return "Timeout";
     }
 
     function clearTimer(clock, timerId, ttype) {
@@ -314,8 +438,8 @@
             if (timerType(timer) === ttype) {
                 delete clock.timers[timerId];
             } else {
-				throw new Error("Cannot clear timer: timer created with set" + ttype + "() but cleared with clear" + timerType(timer) + "()");
-			}
+                throw new Error("Cannot clear timer: timer created with set" + ttype + "() but cleared with clear" + timerType(timer) + "()");
+            }
         }
     }
 
@@ -323,16 +447,20 @@
         var method,
             i,
             l;
+        var installedHrTime = "_hrtime"; // make jslint happy
 
         for (i = 0, l = clock.methods.length; i < l; i++) {
             method = clock.methods[i];
-
-            if (target[method].hadOwnProperty) {
-                target[method] = clock["_" + method];
+            if (method === "hrtime") {
+                target.process.hrtime = clock[installedHrTime];
             } else {
-                try {
-                    delete target[method];
-                } catch (ignore) {}
+                if (target[method].hadOwnProperty) {
+                    target[method] = clock["_" + method];
+                } else {
+                    try {
+                        delete target[method];
+                    } catch (ignore) {}
+                }
             }
         }
 
@@ -371,7 +499,8 @@
         clearImmediate: global.clearImmediate,
         setInterval: setInterval,
         clearInterval: clearInterval,
-        Date: Date
+        Date: Date,
+        hrtime: process.hrtime
     };
 
     var keys = Object.keys || function (obj) {
@@ -389,11 +518,15 @@
 
     exports.timers = timers;
 
-    function createClock(now) {
+    function createClock(now, loopLimit) {
+        loopLimit = loopLimit || 1000;
+
         var clock = {
             now: getEpoch(now),
+            hrNow: 0,
             timeouts: {},
-            Date: createDate()
+            Date: createDate(),
+            loopLimit: loopLimit
         };
 
         clock.Date.clock = clock;
@@ -443,10 +576,16 @@
 
             clock.duringTick = true;
 
+            function updateHrTime(newNow) {
+                clock.hrNow += (newNow - clock.now);
+            }
+
             var firstException;
             while (timer && tickFrom <= tickTo) {
                 if (clock.timers[timer.id]) {
-                    tickFrom = clock.now = timer.callAt;
+                    updateHrTime(timer.callAt);
+                    tickFrom = timer.callAt;
+                    clock.now = timer.callAt;
                     try {
                         oldNow = clock.now;
                         callTimer(clock, timer);
@@ -466,6 +605,7 @@
             }
 
             clock.duringTick = false;
+            updateHrTime(tickTo);
             clock.now = tickTo;
 
             if (firstException) {
@@ -491,6 +631,29 @@
             }
         };
 
+        clock.runAll = function runAll() {
+            var numTimers, i;
+            for (i = 0; i < clock.loopLimit; i++) {
+                numTimers = Object.keys(clock.timers).length;
+                if (numTimers === 0) {
+                    return clock.now;
+                }
+
+                clock.next();
+            }
+
+            throw new Error('Aborting after running ' + clock.loopLimit + 'timers, assuming an infinite loop!');
+        };
+
+        clock.runToLast = function runToLast() {
+            var timer = lastTimer(clock);
+            if (!timer) {
+                return clock.now;
+            }
+
+            return clock.tick(timer.callAt);
+        };
+
         clock.reset = function reset() {
             clock.timers = {};
         };
@@ -499,25 +662,46 @@
             // determine time difference
             var newNow = getEpoch(now);
             var difference = newNow - clock.now;
+            var id, timer;
 
             // update 'system clock'
             clock.now = newNow;
 
             // update timers and intervals to keep them stable
-            for (var id in clock.timers) {
+            for (id in clock.timers) {
                 if (clock.timers.hasOwnProperty(id)) {
-                    var timer = clock.timers[id];
+                    timer = clock.timers[id];
                     timer.createdAt += difference;
                     timer.callAt += difference;
                 }
             }
         };
 
+        if (hrtimePresent) {
+            clock.hrtime = function (prev) {
+                if (Array.isArray(prev)) {
+                    var oldSecs = (prev[0] + prev[1] / 1e9);
+                    var newSecs = (clock.hrNow / 1000);
+                    var difference = (newSecs - oldSecs);
+                    var secs = fixedFloor(difference);
+                    var nanosecs = fixedModulo(difference * 1e9, 1e9);
+                    return [
+                        secs,
+                        nanosecs
+                    ];
+                }
+                return [
+                    fixedFloor(clock.hrNow / 1000),
+                    fixedModulo(clock.hrNow * 1e6, 1e9)
+                ];
+            };
+        }
+
         return clock;
     }
     exports.createClock = createClock;
 
-    exports.install = function install(target, now, toFake) {
+    exports.install = function install(target, now, toFake, loopLimit) {
         var i,
             l;
 
@@ -531,7 +715,7 @@
             target = global;
         }
 
-        var clock = createClock(now);
+        var clock = createClock(now, loopLimit);
 
         clock.uninstall = function () {
             uninstall(clock, target);
@@ -544,14 +728,20 @@
         }
 
         for (i = 0, l = clock.methods.length; i < l; i++) {
-            hijackMethod(target, clock.methods[i], clock);
+            if (clock.methods[i] === "hrtime") {
+                if (target.process && typeof target.process.hrtime === "function") {
+                    hijackMethod(target.process, clock.methods[i], clock);
+                }
+            } else {
+                hijackMethod(target, clock.methods[i], clock);
+            }
         }
 
         return clock;
     };
 
-}(global || this));
+}(global, process));
 
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}]},{},[1])(1)
+}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"_process":1}]},{},[2])(2)
 });

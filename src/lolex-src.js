@@ -1,4 +1,4 @@
-/*global global, window*/
+/*global global, process*/
 /**
  * @author Christian Johansen (christian@cjohansen.no) and contributors
  * @license BSD
@@ -6,7 +6,7 @@
  * Copyright (c) 2010-2014 Christian Johansen
  */
 
-(function (global) {
+(function (global, process) {
     "use strict";
 
     // Make properties writable in IE, as per
@@ -34,7 +34,7 @@
     var NOOP = function () { return undefined; };
     var timeoutResult = setTimeout(NOOP, 0);
     var addTimerReturnsObject = typeof timeoutResult === "object";
-    var hrtimePresent = (global.process && typeof global.process.hrtime === "function");
+    var hrtimePresent = (process && typeof process.hrtime === "function");
     clearTimeout(timeoutResult);
 
     var NativeDate = Date;
@@ -405,7 +405,7 @@
         setInterval: setInterval,
         clearInterval: clearInterval,
         Date: Date,
-        hrtime: global.process.hrtime
+        hrtime: process.hrtime
     };
 
     var keys = Object.keys || function (obj) {
@@ -645,4 +645,4 @@
         return clock;
     };
 
-}(global || this));
+}(global, process));
